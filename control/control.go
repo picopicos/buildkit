@@ -198,8 +198,9 @@ func (c *Controller) DiskUsage(ctx context.Context, r *controlapi.DiskUsageReque
 					}
 					return nil
 				}(),
-				RecordType: string(r.RecordType),
-				Shared:     r.Shared,
+				RecordType:   string(r.RecordType),
+				Shared:       r.Shared,
+				CacheMountNS: r.CacheMountNS,
 			})
 		}
 	}
@@ -282,8 +283,9 @@ func (c *Controller) Prune(req *controlapi.PruneRequest, stream controlapi.Contr
 					}
 					return nil
 				}(),
-				RecordType: string(r.RecordType),
-				Shared:     r.Shared,
+				RecordType:   string(r.RecordType),
+				Shared:       r.Shared,
+				CacheMountNS: r.CacheMountNS,
 			}); err != nil {
 				return err
 			}

@@ -100,6 +100,9 @@ func printVerbose(tw *tabwriter.Writer, du []*client.UsageInfo) {
 		if di.RecordType != "" {
 			printKV(tw, "Type", di.RecordType)
 		}
+		if di.CacheMountNS != "" {
+			printKV(tw, "Cache mount NS", di.CacheMountNS)
+		}
 
 		fmt.Fprintf(tw, "\n")
 	}

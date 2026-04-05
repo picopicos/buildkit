@@ -16,13 +16,14 @@ type UsageInfo struct {
 	InUse   bool   `json:"inUse"`
 	Size    int64  `json:"size"`
 
-	CreatedAt   time.Time       `json:"createdAt"`
-	LastUsedAt  *time.Time      `json:"lastUsedAt"`
-	UsageCount  int             `json:"usageCount"`
-	Parents     []string        `json:"parents"`
-	Description string          `json:"description"`
-	RecordType  UsageRecordType `json:"recordType"`
-	Shared      bool            `json:"shared"`
+	CreatedAt    time.Time       `json:"createdAt"`
+	LastUsedAt   *time.Time      `json:"lastUsedAt"`
+	UsageCount   int             `json:"usageCount"`
+	Parents      []string        `json:"parents"`
+	Description  string          `json:"description"`
+	RecordType   UsageRecordType `json:"recordType"`
+	Shared       bool            `json:"shared"`
+	CacheMountNS string          `json:"cacheMountNS,omitempty"`
 }
 
 func (c *Client) DiskUsage(ctx context.Context, opts ...DiskUsageOption) ([]*UsageInfo, error) {
@@ -56,8 +57,9 @@ func (c *Client) DiskUsage(ctx context.Context, opts ...DiskUsageOption) ([]*Usa
 				}
 				return nil
 			}(),
-			RecordType: UsageRecordType(d.RecordType),
-			Shared:     d.Shared,
+			RecordType:   UsageRecordType(d.RecordType),
+			Shared:       d.Shared,
+			CacheMountNS: d.CacheMountNS,
 		})
 	}
 

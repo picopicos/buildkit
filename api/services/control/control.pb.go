@@ -270,6 +270,7 @@ type UsageRecord struct {
 	RecordType    string               `protobuf:"bytes,10,opt,name=RecordType,proto3" json:"RecordType,omitempty"`
 	Shared        bool                 `protobuf:"varint,11,opt,name=Shared,proto3" json:"Shared,omitempty"`
 	Parents       []string             `protobuf:"bytes,12,rep,name=Parents,proto3" json:"Parents,omitempty"`
+	CacheMountNS  string               `protobuf:"bytes,13,opt,name=CacheMountNS,proto3" json:"CacheMountNS,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -387,6 +388,13 @@ func (x *UsageRecord) GetParents() []string {
 		return x.Parents
 	}
 	return nil
+}
+
+func (x *UsageRecord) GetCacheMountNS() string {
+	if x != nil {
+		return x.CacheMountNS
+	}
+	return ""
 }
 
 type SolveRequest struct {
@@ -2038,7 +2046,7 @@ const file_github_com_moby_buildkit_api_services_control_control_proto_rawDesc =
 	"\x06filter\x18\x01 \x03(\tR\x06filter\x12\x1a\n" +
 	"\bageLimit\x18\x02 \x01(\x03R\bageLimit\"J\n" +
 	"\x11DiskUsageResponse\x125\n" +
-	"\x06record\x18\x01 \x03(\v2\x1d.moby.buildkit.v1.UsageRecordR\x06record\"\x87\x03\n" +
+	"\x06record\x18\x01 \x03(\v2\x1d.moby.buildkit.v1.UsageRecordR\x06record\"\xab\x03\n" +
 	"\vUsageRecord\x12\x0e\n" +
 	"\x02ID\x18\x01 \x01(\tR\x02ID\x12\x18\n" +
 	"\aMutable\x18\x02 \x01(\bR\aMutable\x12\x14\n" +
@@ -2058,7 +2066,8 @@ const file_github_com_moby_buildkit_api_services_control_control_proto_rawDesc =
 	" \x01(\tR\n" +
 	"RecordType\x12\x16\n" +
 	"\x06Shared\x18\v \x01(\bR\x06Shared\x12\x18\n" +
-	"\aParents\x18\f \x03(\tR\aParents\"\xa6\b\n" +
+	"\aParents\x18\f \x03(\tR\aParents\x12\"\n" +
+	"\fCacheMountNS\x18\r \x01(\tR\fCacheMountNS\"\xa6\b\n" +
 	"\fSolveRequest\x12\x10\n" +
 	"\x03Ref\x18\x01 \x01(\tR\x03Ref\x12.\n" +
 	"\n" +
