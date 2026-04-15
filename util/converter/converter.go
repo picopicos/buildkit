@@ -46,6 +46,29 @@ func NewWithRewriteTimestamp(ctx context.Context, cs content.Store, desc ocispec
 		return nil, nil
 	}
 
+	// Short-circuit: if a previous run already produced a rewritten blob for the
+	// same (source digest, epoch, target media type) tuple, reuse it from the
+	// content store and skip the re-tar. This trades a single content-store
+	// walk for tens-to-hundreds of seconds of re-compression on large layers.
+	// Only safe when rewriteTimestamp is set AND immDiffIDs is empty -- an
+	// immutable-diff-id match has the special semantics of "return input desc
+	// unchanged" which cannot be cached by source digest alone.
+	if rewriteTimestamp != nil && len(immDiffIDs) == 0 {
+		if cached, err := lookupRewrittenBlob(ctx, cs, desc.Digest, *rewriteTimestamp, comp.Type.MediaType()); err != nil {
+			bklog.G(ctx).WithError(err).Debugf("rewritten-blob lookup failed; falling back to conversion")
+		} else if cached != nil {
+			bklog.G(ctx).
+				WithField("source", desc.Digest).
+				WithField("rewritten", cached.Digest).
+				WithField("epoch", rewriteTimestamp.UTC().Unix()).
+				Debugf("reusing previously rewritten blob from content store; skipping conversion")
+			cachedCopy := *cached
+			return func(ctx context.Context, cs content.Store, _ ocispecs.Descriptor) (*ocispecs.Descriptor, error) {
+				return &cachedCopy, nil
+			}, nil
+		}
+	}
+
 	from, err := compression.FromMediaType(desc.MediaType)
 	if err != nil {
 		return nil, err
@@ -56,8 +79,56 @@ func NewWithRewriteTimestamp(ctx context.Context, cs content.Store, desc ocispec
 	c.decompress = from.Decompress
 	c.rewriteTimestamp = rewriteTimestamp
 	c.immDiffIDs = immDiffIDs
+	c.sourceDigest = desc.Digest
 
 	return (&c).convert, nil
+}
+
+// lookupRewrittenBlob searches the content store for an existing blob that is
+// the rewritten form of sourceDigest with the given epoch and target media
+// type. Returns nil if no match is found.
+//
+// The match is identified via three labels that are stamped onto the blob at
+// commit time inside (*conversion).convert:
+//   - buildkit/rewritten-source-digest = <sourceDigest>
+//   - buildkit/rewritten-timestamp     = <epoch>
+//   - buildkit/blob.media-type         = <mediaType>
+//
+// The containerd content store filter language is documented at
+// https://pkg.go.dev/github.com/containerd/containerd/v2/pkg/filters
+func lookupRewrittenBlob(ctx context.Context, cs content.Store, sourceDigest digest.Digest, epoch time.Time, mediaType string) (*ocispecs.Descriptor, error) {
+	epochStr := fmt.Sprintf("%d", epoch.UTC().Unix())
+	filter := fmt.Sprintf(
+		"labels.%q==%s,labels.%q==%s,labels.%q==%s",
+		labelRewrittenSourceDigest, sourceDigest.String(),
+		labelRewrittenTimestamp, epochStr,
+		labelBlobMediaType, mediaType,
+	)
+	var found *ocispecs.Descriptor
+	err := cs.Walk(ctx, func(info content.Info) error {
+		if found != nil {
+			return nil
+		}
+		diffID := info.Labels[labels.LabelUncompressed]
+		if diffID == "" {
+			// Without a diffID the consumer cannot validate or unpack; skip.
+			return nil
+		}
+		found = &ocispecs.Descriptor{
+			MediaType: mediaType,
+			Digest:    info.Digest,
+			Size:      info.Size,
+			Annotations: map[string]string{
+				labels.LabelUncompressed: diffID,
+				labelRewrittenTimestamp:  epochStr,
+			},
+		}
+		return nil
+	}, filter)
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
 }
 
 type conversion struct {
@@ -67,6 +138,7 @@ type conversion struct {
 	finalize         compression.Finalizer
 	rewriteTimestamp *time.Time
 	immDiffIDs       map[digest.Digest]struct{} // diffIDs of immutable layers
+	sourceDigest     digest.Digest              // source blob digest, stamped on output for future lookupRewrittenBlob
 }
 
 var bufioPool = pools.New(func() *bufio.Writer {
@@ -145,8 +217,15 @@ func (c *conversion) convert(ctx context.Context, cs content.Store, desc ocispec
 		return &desc, nil
 	}
 	labelz[labels.LabelUncompressed] = diffID.Digest().String() // update diffID label
+	// Stamp the target media type so lookupRewrittenBlob can filter by it.
+	labelz[labelBlobMediaType] = c.target.Type.MediaType()
 	if c.rewriteTimestamp != nil {
 		labelz[labelRewrittenTimestamp] = fmt.Sprintf("%d", c.rewriteTimestamp.UTC().Unix())
+		// Record the source blob digest so a subsequent call can find this
+		// rewritten blob via lookupRewrittenBlob without re-running convert.
+		if c.sourceDigest != "" {
+			labelz[labelRewrittenSourceDigest] = c.sourceDigest.String()
+		}
 	}
 	if err = w.Commit(ctx, 0, "", content.WithLabels(labelz)); err != nil && !cerrdefs.IsAlreadyExists(err) {
 		return nil, err
@@ -189,4 +268,8 @@ func (w *onceWriteCloser) Close() (err error) {
 	return
 }
 
-const labelRewrittenTimestamp = "buildkit/rewritten-timestamp"
+const (
+	labelRewrittenTimestamp    = "buildkit/rewritten-timestamp"
+	labelRewrittenSourceDigest = "buildkit/rewritten-source-digest"
+	labelBlobMediaType         = "buildkit/blob.media-type"
+)
