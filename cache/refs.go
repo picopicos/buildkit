@@ -46,7 +46,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var additionalAnnotations = append(append(compression.EStargzAnnotations, obdlabel.OverlayBDAnnotations...), labels.LabelUncompressed)
+// rewrittenTimestampAnnotation is the annotation key BuildKit attaches to a
+// layer blob after applying SOURCE_DATE_EPOCH via `rewrite-timestamp=true`.
+// Including it in additionalAnnotations preserves the marker across cache round
+// trips so subsequent builds can skip the re-tar in
+// util/converter/converter.go (labelRewrittenTimestamp check).
+const rewrittenTimestampAnnotation = "buildkit/rewritten-timestamp"
+
+var additionalAnnotations = append(
+	append(
+		append(compression.EStargzAnnotations, obdlabel.OverlayBDAnnotations...),
+		labels.LabelUncompressed,
+	),
+	rewrittenTimestampAnnotation,
+)
 
 // Ref is a reference to cacheable objects.
 type Ref interface {
