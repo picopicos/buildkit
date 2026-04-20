@@ -1164,11 +1164,12 @@ func (cm *cacheManager) pruneOnce(ctx context.Context, ch chan client.UsageInfo,
 			}
 
 			c := &client.UsageInfo{
-				ID:          cr.ID(),
-				Mutable:     cr.mutable,
-				RecordType:  recordType,
-				Shared:      shared,
-				Description: cr.GetDescription(),
+				ID:           cr.ID(),
+				Mutable:      cr.mutable,
+				RecordType:   recordType,
+				Shared:       shared,
+				Description:  cr.GetDescription(),
+				CacheMountNS: cacheMountNSFromKey(cr.GetString("cache-dir")),
 			}
 
 			usageCount, lastUsedAt := cr.getLastUsed()
@@ -1358,18 +1359,19 @@ func (cm *cacheManager) markShared(m map[string]*cacheUsageInfo) error {
 }
 
 type cacheUsageInfo struct {
-	refs        int
-	parents     []string
-	size        int64
-	mutable     bool
-	createdAt   time.Time
-	usageCount  int
-	lastUsedAt  *time.Time
-	description string
-	doubleRef   bool
-	recordType  client.UsageRecordType
-	shared      bool
-	parentChain []digest.Digest
+	refs         int
+	parents      []string
+	size         int64
+	mutable      bool
+	createdAt    time.Time
+	usageCount   int
+	lastUsedAt   *time.Time
+	description  string
+	doubleRef    bool
+	recordType   client.UsageRecordType
+	shared       bool
+	parentChain  []digest.Digest
+	cacheMountNS string
 }
 
 func (cm *cacheManager) DiskUsage(ctx context.Context, opt client.DiskUsageInfo) ([]*client.UsageInfo, error) {
@@ -1393,16 +1395,17 @@ func (cm *cacheManager) DiskUsage(ctx context.Context, opt client.DiskUsageInfo)
 
 		usageCount, lastUsedAt := cr.getLastUsed()
 		c := &cacheUsageInfo{
-			refs:        len(cr.refs),
-			mutable:     cr.mutable,
-			size:        cr.getSize(),
-			createdAt:   cr.GetCreatedAt(),
-			usageCount:  usageCount,
-			lastUsedAt:  lastUsedAt,
-			description: cr.GetDescription(),
-			doubleRef:   cr.equalImmutable != nil,
-			recordType:  cr.GetRecordType(),
-			parentChain: cr.layerDigestChain(),
+			refs:         len(cr.refs),
+			mutable:      cr.mutable,
+			size:         cr.getSize(),
+			createdAt:    cr.GetCreatedAt(),
+			usageCount:   usageCount,
+			lastUsedAt:   lastUsedAt,
+			description:  cr.GetDescription(),
+			doubleRef:    cr.equalImmutable != nil,
+			recordType:   cr.GetRecordType(),
+			parentChain:  cr.layerDigestChain(),
+			cacheMountNS: cacheMountNSFromKey(cr.GetString("cache-dir")),
 		}
 		if c.recordType == "" {
 			c.recordType = client.UsageRecordTypeRegular
@@ -1457,17 +1460,18 @@ func (cm *cacheManager) DiskUsage(ctx context.Context, opt client.DiskUsageInfo)
 	var du []*client.UsageInfo
 	for id, cr := range m {
 		c := &client.UsageInfo{
-			ID:          id,
-			Mutable:     cr.mutable,
-			InUse:       cr.refs > 0,
-			Size:        cr.size,
-			Parents:     cr.parents,
-			CreatedAt:   cr.createdAt,
-			Description: cr.description,
-			LastUsedAt:  cr.lastUsedAt,
-			UsageCount:  cr.usageCount,
-			RecordType:  cr.recordType,
-			Shared:      cr.shared,
+			ID:           id,
+			Mutable:      cr.mutable,
+			InUse:        cr.refs > 0,
+			Size:         cr.size,
+			Parents:      cr.parents,
+			CreatedAt:    cr.createdAt,
+			Description:  cr.description,
+			LastUsedAt:   cr.lastUsedAt,
+			UsageCount:   cr.usageCount,
+			RecordType:   cr.recordType,
+			Shared:       cr.shared,
+			CacheMountNS: cr.cacheMountNS,
 		}
 		if !filter.Match(adaptUsageInfo(c)) {
 			continue
@@ -1656,12 +1660,23 @@ func adaptUsageInfo(info *client.UsageInfo) filters.Adaptor {
 			return "", info.Shared
 		case "private":
 			return "", !info.Shared
+		case "cachemountns":
+			return info.CacheMountNS, info.CacheMountNS != ""
 		}
 
 		// TODO: add int/datetime/bytes support for more fields
 
 		return "", false
 	})
+}
+
+// cacheMountNSFromKey extracts the namespace portion from a cache mount key.
+// The key format is "{ns}/{cacheID}" optionally followed by ":{refID}".
+func cacheMountNSFromKey(cacheDirVal string) string {
+	if i := strings.Index(cacheDirVal, "/"); i >= 0 {
+		return cacheDirVal[:i]
+	}
+	return ""
 }
 
 type pruneOpt struct {
